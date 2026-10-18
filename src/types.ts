@@ -13,6 +13,8 @@ export interface ChainConfig {
   chainId: number;
   name: string;
   requiredFinalityBlocks: number;
+  blockTimeSeconds: number;
+  reorgSafetyBufferBlocks: number;
   htlcAddress: string;
   isPaused: boolean;
 }
@@ -43,7 +45,9 @@ export interface ChainBlockEvent {
   eventId: string;
   chainId: number;
   blockNumber: number;
+  blockHash: string;
   txHash: string;
+  status: number; // 1 for success
   swapId: string;
   eventType: "SWAP_CREATED" | "SWAP_CLAIMED" | "SWAP_REFUNDED";
   data: any;

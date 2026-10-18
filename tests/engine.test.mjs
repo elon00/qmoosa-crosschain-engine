@@ -19,7 +19,7 @@ test("1. Full End-to-End Cross-Chain Atomic Swap Lifecycle", () => {
   const hashlock = computeHashlock(secret);
   const now = Math.floor(Date.now() / 1000);
 
-  // 1. Create Swap
+  // 1. Create Swap (Chain 1 to 137 requires 684s dynamic margin)
   const swap = engine.createSwapOrder({
     swapId: "0xSwap01",
     sender: "0xAlice",
@@ -30,7 +30,7 @@ test("1. Full End-to-End Cross-Chain Atomic Swap Lifecycle", () => {
     destAmount: 1200n * 10n**18n,
     hashlock,
     sourceTimelock: now + 3600, // 1h
-    destTimelock: now + 1800,   // 30m (delta = 1800s > 300s)
+    destTimelock: now + 1800,   // 30m (delta = 1800s > 684s)
     sourceChainId: 1,
     destChainId: 137,
     nonce: 1
@@ -68,8 +68,8 @@ test("2. Expiration and Refund Lifecycle after Timelock", () => {
     sourceAmount: 500n * 10n**18n,
     destAmount: 600n * 10n**18n,
     hashlock,
-    sourceTimelock: now + 1000,
-    destTimelock: now + 500,
+    sourceTimelock: now + 2000,
+    destTimelock: now + 1000, // delta = 1000s > 684s
     sourceChainId: 1,
     destChainId: 137,
     nonce: 2
@@ -80,12 +80,12 @@ test("2. Expiration and Refund Lifecycle after Timelock", () => {
 
   // Premature refund before source timelock must fail closed
   assert.throws(
-    () => engine.executeRefund("0xSwap02", now + 800),
+    () => engine.executeRefund("0xSwap02", now + 1500),
     /TIMELOCK_ACTIVE/
   );
 
   // Refund after source timelock succeeds
-  const refunded = engine.executeRefund("0xSwap02", now + 1001);
+  const refunded = engine.executeRefund("0xSwap02", now + 2001);
   assert.equal(refunded.state, CrossChainSwapState.REFUNDED);
 });
 
@@ -182,7 +182,7 @@ test("5. Reorg Rollback State Demotion Defense", () => {
   assert.equal(engine.getSwap("0xSwap05").sourceBlockDepth, 9);
 });
 
-test("6. Idempotent Event Processing Deduplication", () => {
+test("6. Idempotent Event Processing & Receipt Verification", () => {
   const { engine } = setupEngine();
   const hashlock = computeHashlock("event_secret");
   const now = Math.floor(Date.now() / 1000);
@@ -207,7 +207,9 @@ test("6. Idempotent Event Processing Deduplication", () => {
     eventId: "evt_111",
     chainId: 1,
     blockNumber: 100,
-    txHash: "0xTx1",
+    blockHash: "0x" + "a".repeat(64),
+    txHash: "0x" + "b".repeat(64),
+    status: 1,
     swapId: "0xSwap06",
     eventType: "SWAP_CREATED",
     data: {}
@@ -219,6 +221,24 @@ test("6. Idempotent Event Processing Deduplication", () => {
   // Duplicate event returns false without mutation
   const second = engine.processBlockEvent(event);
   assert.equal(second, false);
+
+  // Reverted receipt status fails closed
+  const revertedEvent = {
+    eventId: "evt_222",
+    chainId: 1,
+    blockNumber: 101,
+    blockHash: "0x" + "a".repeat(64),
+    txHash: "0x" + "c".repeat(64),
+    status: 0, // Reverted receipt
+    swapId: "0xSwap06",
+    eventType: "SWAP_CREATED",
+    data: {}
+  };
+
+  assert.throws(
+    () => engine.processBlockEvent(revertedEvent),
+    /TRANSACTION_FAILED/
+  );
 });
 
 test("7. Ed25519 Admin Intent Authentication & Nonce Replay Defense", () => {
@@ -243,4 +263,39 @@ test("7. Ed25519 Admin Intent Authentication & Nonce Replay Defense", () => {
     () => engine.executeAdminIntent(signed),
     /NONCE_REPLAY_ATTACK/
   );
+});
+
+test("8. Defensive Copy Immutability Defense", () => {
+  const { engine } = setupEngine();
+  const hashlock = computeHashlock("defensive_secret");
+  const now = Math.floor(Date.now() / 1000);
+
+  engine.createSwapOrder({
+    swapId: "0xSwap08",
+    sender: "0xAlice",
+    recipient: "0xBob",
+    sourceToken: "0xUSDC",
+    destToken: "0xMATIC",
+    sourceAmount: 100n * 10n**18n,
+    destAmount: 120n * 10n**18n,
+    hashlock,
+    sourceTimelock: now + 2000,
+    destTimelock: now + 1000,
+    sourceChainId: 1,
+    destChainId: 137,
+    nonce: 8
+  });
+
+  const snapshot = engine.getSwap("0xSwap08");
+  assert.ok(snapshot);
+
+  // Attempting to mutate returned object must fail or not affect internal state
+  try {
+    snapshot.state = CrossChainSwapState.CLAIMED;
+  } catch {
+    // Throws in strict mode because Object.isFrozen
+  }
+
+  // Internal state must strictly remain CREATED
+  assert.equal(engine.getSwap("0xSwap08").state, CrossChainSwapState.CREATED);
 });
