@@ -1,0 +1,29 @@
+{
+  "name": "@qmoosa/crosschain-engine",
+  "version": "1.0.0",
+  "description": "QMOOSA Cross-Chain Engine — Deterministic State Machine, Relayer Coordination & Reorg-Resilient Finality Verifier",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test tests/engine.test.mjs",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "qmoosa",
+    "crosschain",
+    "engine",
+    "state-machine",
+    "htlc",
+    "atomic-swap",
+    "relayer",
+    "finality"
+  ],
+  "author": "elon00",
+  "license": "MIT"
+}
